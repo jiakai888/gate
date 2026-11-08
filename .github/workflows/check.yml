@@ -66,6 +66,10 @@ jobs:
           CHECK_TIMEOUT: ${{ github.event.inputs.timeout || '25' }}
           MAX_CHECK_NODES: ${{ github.event.inputs.max_nodes || '0' }}
           MIN_SUCCESS_RATIO: '0'
+          HISTORY_URL: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data.json"
+          HISTORY_LIMIT: '300'
+          MAX_RESIDENTIAL_PER_COUNTRY: '100'
+          MAX_DATACENTER_PER_COUNTRY: '100'
         run: python vpngate.py
 
       - name: Ensure GitHub Pages is enabled

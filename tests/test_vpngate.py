@@ -200,6 +200,32 @@ def test_dedupe_and_prioritize():
     assert [n.host for n in ordered] == ["c.opengw.net", "b.opengw.net", "a.opengw.net"]
 
 
+def test_parse_history_json_restores_nodes():
+    data = {
+        "countries": {
+            "JP": {
+                "nodes": [
+                    {"host": "vpn123.opengw.net", "port": 443, "ip": "1.2.3.4", "country": "Japan", "country_code": "JP"},
+                    {"host": "public-vpn-9", "port": 995, "country": "Japan", "country_code": "JP"},
+                    {"host": "", "port": 443},
+                    {"host": "bad.opengw.net", "port": "x"},
+                ]
+            }
+        }
+    }
+    nodes = vpngate.parse_history_json(data)
+    assert [(n.host, n.port) for n in nodes] == [
+        ("vpn123.opengw.net", 443),
+        ("public-vpn-9.opengw.net", 995),
+    ]
+
+
+def test_parse_history_json_rejects_invalid_payload():
+    assert vpngate.parse_history_json({}) == []
+    assert vpngate.parse_history_json({"countries": []}) == []
+    assert vpngate.parse_history_json(None) == []
+
+
 def test_classify_prefers_worker_flag():
     assert vpngate.classify_network("GOOGLE LLC", False) == "residential"
     assert vpngate.classify_network("NTT EAST", True) == "datacenter"

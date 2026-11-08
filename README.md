@@ -13,6 +13,7 @@
 - 检测结果自动按国家/地区归类，住宅出口优先
 - 同时产出仪表盘（`index.html`）、结构化数据（`data.json`）、订阅文件（`nodes.txt`）
 - 源站失败自动回退镜像；检测整体失败时**拒绝发布**，不会用空结果覆盖你上一份订阅
+- **滚动节点池**：每轮把上一轮已发布的可用节点一并复检，突破 VPN Gate 单次只公开 100 台的限制
 - 所有配置走环境变量 / GitHub Secret，不写死域名
 
 ## 架构
@@ -22,6 +23,7 @@ GitHub Actions (手动或 cron)
         │
         ├─ 抓取 VPN Gate API（失败回退 GitHub 镜像）
         ├─ 解析 OpenVPN 配置 → 只保留 proto tcp → 得到 SSTP 候选
+        ├─ 读取上一轮 data.json，合并历史可用节点（滚动节点池）
         ├─ 去重 + 按 Ping 预排序 +（可选）截断
         ├─ 并发请求 Cloudflare Worker: /check?sstp=vpn:vpn@host:port
         ├─ 合并静态优选域名 + 优选 API 端点
@@ -74,6 +76,8 @@ on:
 | `MIN_SUCCESS_RATIO` | `0` | 成功率低于该比例时拒绝发布（0–1），`0` 表示不启用 |
 | `MAX_RESIDENTIAL_PER_COUNTRY` | `20` | 每个国家/地区写入 nodes.txt 的住宅节点上限 |
 | `MAX_DATACENTER_PER_COUNTRY` | `10` | 每个国家/地区写入 nodes.txt 的机房节点上限 |
+| `HISTORY_URL` | 空（关闭） | 上一轮 `data.json` 地址；工作流已指向本仓库 Pages，用于滚动节点池 |
+| `HISTORY_LIMIT` | `300` | 每轮最多复用多少个历史可用节点 |
 | `EDGE_HOSTS` / `HOSTS_ENTRY` | 内置池 | 自定义优选域名池，逗号分隔，可带端口，如 `a.com:443,b.com:8443` |
 | `OPTIMAL_API` | `https://cf.090227.xyz/ct?ips=6&port=443` | 优选 API；返回每行一个 `IP:端口` 或 IPv6，支持逗号分隔多个 |
 | `PUBLIC_DIR` | `./public` | 产物目录 |
@@ -177,7 +181,7 @@ A：主要依据 Worker 返回的出口 ASN 与 `is_datacenter` 标记（来自�
 
 ## 已知限制
 
-- VPN Gate 官方 API 只提供约 100 个节点，TCP(SSTP) 约 80–90 个，覆盖量受源站限制。
+- VPN Gate 官方 API 单次只公开约 100 个节点（TCP/SSTP 约 80–90 个），但名单会轮换；本项目通过滚动节点池复用历史可用节点来扩大总量。
 - VPN Gate 没有 HTTPS 接口，只能走 `http://`，部分网络环境可能访问不了。
 - 「`proto tcp` 即 SSTP」是基于 VPN Gate 行为推断的近似：官方 API 没有 SSTP 字段，TCP 端口即 SSTP 监听端口。
 - 检测依赖第三方 Worker 与 IP 库，结果不代表节点长期稳定。

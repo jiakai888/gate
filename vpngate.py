@@ -289,6 +289,8 @@ class Config:
     min_success_ratio: float
     max_residential_per_country: int
     max_datacenter_per_country: int
+    history_url: str = ""
+    history_limit: int = 300
 
     @classmethod
     def load(cls) -> "Config":
@@ -323,6 +325,8 @@ class Config:
             min_success_ratio=_env_float("MIN_SUCCESS_RATIO", 0.0, minimum=0.0),
             max_residential_per_country=_env_int("MAX_RESIDENTIAL_PER_COUNTRY", 20),
             max_datacenter_per_country=_env_int("MAX_DATACENTER_PER_COUNTRY", 10),
+            history_url=os.environ.get("HISTORY_URL", "").strip(),
+            history_limit=_env_int("HISTORY_LIMIT", 300),
         )
 
 
@@ -578,6 +582,61 @@ def prioritize(nodes: list[Node]) -> list[Node]:
         nodes,
         key=lambda n: (n.ping is None, n.ping or 0, -(n.score or 0), n.host),
     )
+
+
+def parse_history_json(data: Any) -> list[Node]:
+    """从上一轮发布的 data.json 中恢复成功过的节点。"""
+    countries = data.get("countries") if isinstance(data, dict) else None
+    if not isinstance(countries, dict):
+        return []
+    nodes: list[Node] = []
+    for group in countries.values():
+        if not isinstance(group, dict):
+            continue
+        for item in group.get("nodes") or []:
+            if not isinstance(item, dict):
+                continue
+            host = str(item.get("host") or "").strip().lower()
+            try:
+                port = int(item.get("port"))
+            except (TypeError, ValueError):
+                continue
+            if not host or not 1 <= port <= 65535:
+                continue
+            if "." not in host:
+                host = f"{host}.opengw.net"
+            nodes.append(
+                Node(
+                    host=host,
+                    port=port,
+                    ip=str(item.get("ip") or "").strip(),
+                    country=str(item.get("country") or "").strip(),
+                    country_code=str(item.get("country_code") or "").strip().upper(),
+                )
+            )
+    return nodes
+
+
+def load_history_nodes(cfg: Config, session: requests.Session) -> list[Node]:
+    """读取上一轮已发布的可用节点，与当前节点合并后复检，扩大节点池。"""
+    if not cfg.history_url:
+        return []
+    separator = "&" if "?" in cfg.history_url else "?"
+    try:
+        log("HISTORY", f"读取上一轮发布节点: {cfg.history_url}")
+        response = session.get(
+            f"{cfg.history_url}{separator}t={int(time.time())}",
+            timeout=min(cfg.http_timeout, 20),
+        )
+        response.raise_for_status()
+        nodes = dedupe_nodes(parse_history_json(response.json()))
+    except Exception as exc:  # noqa: BLE001 - 历史读取失败不影响主流程
+        log("HISTORY", f"读取历史节点失败（忽略）: {exc}")
+        return []
+    if len(nodes) > cfg.history_limit:
+        nodes = nodes[: cfg.history_limit]
+    log("HISTORY", f"历史可用节点: {len(nodes)}")
+    return nodes
 
 
 # ---------------------------------------------------------------------------
@@ -947,11 +1006,18 @@ def main() -> None:
     if sstp_count == 0:
         die("VPN GATE", f"从 {raw_count} 个原始节点中没有解析出任何 SSTP(TCP) 节点")
 
-    unique_nodes = prioritize(dedupe_nodes(sstp_nodes))
+    current_nodes = dedupe_nodes(sstp_nodes)
+    history_nodes = load_history_nodes(cfg, session)
+    unique_nodes = prioritize(dedupe_nodes(list(current_nodes) + history_nodes))
+    added = max(0, len(unique_nodes) - len(current_nodes))
     if cfg.max_check_nodes > 0:
         unique_nodes = unique_nodes[: cfg.max_check_nodes]
 
-    log("VPN GATE", f"原始节点 {raw_count}, SSTP {sstp_count}, 去重后 {len(unique_nodes)}")
+    log(
+        "VPN GATE",
+        f"原始节点 {raw_count}, SSTP {sstp_count}, 当前 {len(current_nodes)}, "
+        f"历史新增 {added}, 待检测 {len(unique_nodes)}",
+    )
     log("CLOUDFLARE WORKER", f"提交检测: {len(unique_nodes)}")
 
     check_started = time.time()
