@@ -47,7 +47,9 @@ GitHub Actions (手动或 cron)
 
 ## 自动更新（可选）
 
-模板默认**不配置定时任务**，避免给你的仓库带来意外消耗。需要自动更新时，在 `.github/workflows/check.yml` 里取消注释：
+> 本仓库当前由 Cloudflare Worker `gate-scheduler` 在 UTC `:07 / :37` 触发，GitHub 自带 schedule 已关闭，避免重复触发。
+
+模板默认**不配置定时任务**，避免给你的仓库带来意外消耗。需要改用 GitHub 自动更新时，在 `.github/workflows/check.yml` 里加上：
 
 ```yaml
 on:

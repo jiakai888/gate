@@ -1,6 +1,7 @@
 name: VPN Gate Node Check
 
-# 注意：GitHub 调度最小间隔约 5 分钟，但通常会延迟几分钟；仓库连续 60 天无提交会让定时任务自动停用。
+# 定时触发由 Cloudflare Worker `gate-scheduler` 负责（UTC :07 / :37）。
+# 本仓库不使用 GitHub 自带 schedule，避免两个调度器重复触发。
 
 on:
   workflow_dispatch:
@@ -17,8 +18,6 @@ on:
         description: '单节点检测超时（秒）'
         required: false
         default: '25'
-  schedule:
-    - cron: '7,37 * * * *'
 
 permissions:
   contents: read
